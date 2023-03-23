@@ -232,9 +232,12 @@ if __name__ == '__main__':
     twin1 = ax.twinx()
     twin2 = ax.twinx()
     twin2.spines.right.set_position(("axes", 1.08))
-    p1, = ax.plot(bins[:-1], acceptable_price_density*(scale), "g-", label="Price acceptance density")
-    p2, = twin1.plot(bins[:-1], load_price_density/D_bar, "b-", label="loads consumed density")
-    p3, = twin2.plot(bins[:-1], price_density, "r-", label="Price density")
+
+    new_x = (bins[1:] + bins[:-1])/2
+
+    p1, = ax.plot(new_x, acceptable_price_density*(scale), "g-", label="Price acceptance density")
+    p2, = twin1.plot(new_x, load_price_density/D_bar, "b-", label="loads consumed density")
+    p3, = twin2.plot(new_x, price_density, "r-", label="Price density")
     ax.set_xlim(0, 1.3)
     ax.set_ylim(0, np.max(acceptable_price_density*(scale))*1.1)
     twin1.set_ylim(0, np.max(load_price_density/D_bar)*1.1)
@@ -264,7 +267,10 @@ if __name__ == '__main__':
     logbins = np.logspace(np.log10(bins[0]),np.log10(bins[-1]),len(bins))
     # Bincounter for acceptable price density
     Demand_density = (np.histogram(D/D_bar, logbins, density=True)[0])
-    plt.plot((logbins[:-1]+logbins[1:])/2, Demand_density, label=f'N={int(N)}, T={int(T)}, f={f}')
+
+    new_x = (logbins[1:] + logbins[:-1])/2
+
+    plt.plot(new_x, Demand_density, label=f'N={int(N)}, T={int(T)}, f={f}')
     plt.axvline(x = 1, color = 'k')
     plt.ylim(1E-8, 1E0)
     plt.yticks([1E-8, 1E-7, 1E-6, 1E-5, 1E-4, 1E-3, 1E-2, 1E-1, 1E0, 1E1])
@@ -286,7 +292,10 @@ if __name__ == '__main__':
     plt.hist2d(P, D/D_bar, bins=(100, logbins), norm=mpl.colors.LogNorm(), cmap='YlOrRd')
     plt.colorbar()
     plt.axis([0.35, 1.01, 1E-2, 1E3])
+    plt.ylabel(r'$D/\bar{D}$')
+    plt.xlabel(r'$P$')
     plt.yscale("log")
+    plt.grid()
     plt.tight_layout()
     plt.savefig('FIG. 5.png')
     plt.show()
