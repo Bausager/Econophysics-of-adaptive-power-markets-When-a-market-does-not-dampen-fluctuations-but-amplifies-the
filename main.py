@@ -5,9 +5,17 @@ from tqdm import tqdm
 import os
 from time import sleep
 import time # For timing and waiting.
+import pandas as pd
+
 
 from multiprocessing import Process
 from multiprocessing import cpu_count
+
+
+# https://stackoverflow.com/questions/643699/how-can-i-use-numpy-correlate-to-do-autocorrelation
+def acf(x, length=20):
+    return np.array([1]+[np.corrcoef(x[:-i], x[i:])[0,1]  \
+        for i in tqdm(range(1, length))])
 
 
 def priceSeries(T, T_init, v_0, sigma_0, mu=1):
@@ -18,17 +26,17 @@ def priceSeries(T, T_init, v_0, sigma_0, mu=1):
     
     for t in range(0, int(T_init)):
         if(t == 0):
-            P_temp = P_temp + (-v_0*(np.random.normal(loc=1) - mu) + (sigma_0*np.random.normal()))
+            P_temp = P_temp + (-v_0*(np.random.normal(loc=mu) - mu) + (sigma_0*np.random.normal(loc=mu)))
         else:
-            P_temp = P_temp + (-v_0*(P_temp - mu) + (sigma_0*np.random.normal()))
+            P_temp = P_temp + (-v_0*(P_temp - mu) + (sigma_0*np.random.normal(loc=mu)))
         
         
     for i in tqdm(range(0, int(T))):
         
         if(i == 0):
-            P[i] = P_temp + (-v_0*(P_temp - mu) + (sigma_0*np.random.normal()))
+            P[i] = P_temp + (-v_0*(P_temp - mu) + (sigma_0*np.random.normal(loc=mu)))
         else:
-            P[i] = P[i-1] + (-v_0*(P[i-1] - mu) + (sigma_0*np.random.normal()))
+            P[i] = P[i-1] + (-v_0*(P[i-1] - mu) + (sigma_0*np.random.normal(loc=mu)))
             
     return P
 
@@ -77,9 +85,6 @@ def generate(P,
             # Measure start time.
             start = time.perf_counter()
 
-
-        
-
         d = np.where(P[i] <= p, 1, 0)
         d_inv = np.where(d == 0, 1, 0)
         d2 = d_inv*np.random.binomial(n=1, p=f, size=int(N))
@@ -94,7 +99,6 @@ def generate(P,
         p3 = d2_inv*p
         
         p = (p1 + p2 + p3)
-
 
         D[i] = np.sum(d)
 
@@ -138,14 +142,16 @@ if __name__ == '__main__':
     pi = np.zeros(shape=(int(T)), dtype=float)
     di = np.zeros(shape=(int(T)), dtype=float)
     
+
+    bin_size = 100
     # Bins for histogram
-    bins = np.linspace(start=0, stop=2, num=100)
+    bins = np.linspace(start=0, stop=2, num=bin_size)
     # Bincounter for acceptable price density
-    acceptable_price_density = np.zeros(len(bins)-1)
+    acceptable_price_density = np.zeros(bin_size-1)
     # Bincounter for load price density
-    load_price_density = np.zeros(len(bins)-1)
+    load_price_density = np.zeros(bin_size-1)
     # Bincounter for price series
-    price_density = np.zeros(len(bins)-1)
+    price_density = np.zeros(bin_size-1)
 
     # Create time series if not found.
     if not (os.path.exists(f'./Storage/P{T}.npy') and os.path.exists(f'./Storage/N{N}.npy') and os.path.exists(f'./Storage/f{f}.npy')):
@@ -173,7 +179,7 @@ if __name__ == '__main__':
         np.save(f'./Storage/N{N}', N)
         np.save('./Storage/T', T)
         np.save(f'./Storage/f{f}', f)
-        np.save('./Storage/P', P)
+        np.save('./Storage/P', P) 
         np.save('./Storage/D', D)
         np.save('./Storage/bins', bins)
         np.save('./Storage/acceptable_price_density', acceptable_price_density)
@@ -184,18 +190,23 @@ if __name__ == '__main__':
     N = np.load(f'./Storage/N{N}.npy')
     T = np.load('./Storage/T.npy')
     f = np.load(f'./Storage/f{f}.npy')
-    # density of highest acceptable prices scale
-    scale = 1.0 / (N*(T+1))
-    D = np.load('./Storage/D.npy')
-    D_bar = np.average(D)
-    d_bar = D_bar / N
-    bins = np.load('./Storage/bins.npy')
-    acceptable_price_density = np.load('./Storage/acceptable_price_density.npy')
-    load_price_density = np.load('./Storage/load_price_density.npy')
     pi = np.load('./Storage/pi.npy')
     di = np.load('./Storage/di.npy')
+    D = np.load('./Storage/D.npy')
 
-    price_density = (np.histogram(P, bins,  density=True)[0])
+    D_bar = np.average(D)
+    d_bar = D_bar / N
+
+    bins = np.load('./Storage/bins.npy')
+    delta_bins = np.zeros(len(bins)-1)
+    delta_bins = bins[1:] - bins[:-1]
+    bins_x = (bins[1:] + bins[:-1])/2
+
+    acceptable_price_density = np.load('./Storage/acceptable_price_density.npy')
+    acceptable_price_density = acceptable_price_density/(np.sum((acceptable_price_density*delta_bins)))
+    load_price_density = np.load('./Storage/load_price_density.npy')
+    load_price_density = load_price_density/(np.sum((load_price_density*delta_bins)))
+    price_density = np.histogram(P, bins,  density=True)[0]
 
 
 
@@ -226,38 +237,24 @@ if __name__ == '__main__':
     fig.tight_layout()
     plt.savefig('FIG. 2.png')
 #
-    fig, ax = plt.subplots(figsize=(20,9))
-    fig.suptitle('FIG. 3')
-    fig.subplots_adjust(right=0.75)
-    twin1 = ax.twinx()
-    twin2 = ax.twinx()
-    twin2.spines.right.set_position(("axes", 1.08))
-
-    new_x = (bins[1:] + bins[:-1])/2
-
-    p1, = ax.plot(new_x, acceptable_price_density*(scale), "g-", label="Price acceptance density")
-    p2, = twin1.plot(new_x, load_price_density/D_bar, "b-", label="loads consumed density")
-    p3, = twin2.plot(new_x, price_density, "r-", label="Price density")
-    ax.set_xlim(0, 1.3)
-    ax.set_ylim(0, np.max(acceptable_price_density*(scale))*1.1)
-    twin1.set_ylim(0, np.max(load_price_density/D_bar)*1.1)
-    twin2.set_ylim(0, np.max(price_density)*1.1)
-    ax.set_xlabel(r'$P$')
-    ax.set_ylabel(r'$\rho$')
-    tkw = dict(size=4, width=1.5)
-    ax.tick_params(axis='y', colors=p1.get_color(), **tkw)
-    twin1.tick_params(axis='y', colors=p2.get_color(), **tkw)
-    twin2.tick_params(axis='y', colors=p3.get_color(), **tkw)
-    ax.axvline(x = np.average(P), color = 'k')
-    ax.axvline(x = 1+(1*np.std(P)), color = 'k', linestyle='dashed', alpha=0.35)
-    ax.axvline(x = 1-(1*np.std(P)), color = 'k', linestyle='dashed', alpha=0.35)
-    ax.axvline(x = 1-(2*np.std(P)), color = 'k', linestyle='dashed', alpha=0.35)
-    ax.axvline(x = 1-(3*np.std(P)), color = 'k', linestyle='dashed', alpha=0.35)
-    ax.axvline(x = 1-(4*np.std(P)), color = 'k', linestyle='dashed', alpha=0.35)
-    ax.axvline(x = 1-(5*np.std(P)), color = 'k', linestyle='dashed', alpha=0.35)
-    ax.tick_params(axis='x', **tkw)
-    ax.legend(handles=[p1, p2, p3], loc='upper right')
-    fig.savefig('FIG. 3.png')
+    plt.figure(3, figsize=(16,9))
+    plt.title("FIG. 3")
+    plt.plot(bins_x, acceptable_price_density, "g-", label="Price acceptance density")
+    plt.plot(bins_x, load_price_density, "b-", label="loads consumed density")
+    plt.plot(bins_x, price_density, "r-", label="Price density")
+    plt.xlim(0, 1.3)
+    plt.ylim(0, np.max(price_density)*1.1)
+    plt.xlabel(r'$P$')
+    plt.ylabel(r'$\rho$')
+    plt.axvline(x = np.average(P), color = 'k')
+    plt.axvline(x = 1+(1*np.std(P)), color = 'k', linestyle='dashed', alpha=0.35)
+    plt.axvline(x = 1-(1*np.std(P)), color = 'k', linestyle='dashed', alpha=0.35)
+    plt.axvline(x = 1-(2*np.std(P)), color = 'k', linestyle='dashed', alpha=0.35)
+    plt.axvline(x = 1-(3*np.std(P)), color = 'k', linestyle='dashed', alpha=0.35)
+    plt.axvline(x = 1-(4*np.std(P)), color = 'k', linestyle='dashed', alpha=0.35)
+    plt.axvline(x = 1-(5*np.std(P)), color = 'k', linestyle='dashed', alpha=0.35)
+    plt.legend(loc='upper right')
+    plt.savefig('FIG. 3.png')
 #
     plt.figure(4, figsize=(16,9))
     plt.title('FIG. 4')
@@ -298,6 +295,76 @@ if __name__ == '__main__':
     plt.grid()
     plt.tight_layout()
     plt.savefig('FIG. 5.png')
+
+
+
+###
+### Import of file
+###
+    all_real = pd.read_csv('EnergyReport.csv', delimiter=';', decimal=',')
+    #all_real = all_real[all_real['DK1_DKK/MWh'] > 0.0]
+    N = len(all_real)
+###
+### Declarations
+###
+    P_real = np.zeros(N, dtype=float)
+    P_wo_mean = np.zeros(N, dtype=float)
+    deltaP = np.zeros(N-1, dtype=float)
+    matr =  np.zeros([N-1, 2], dtype=float)
+###
+### Fit data to Langevin-equation
+###
+    P_real = all_real['DK1_DKK/MWh'].to_numpy()
+    deltaP = P_real[1:] - P_real[:-1]
+    P_mean = np.mean(P_real)
+    P_wo_mean = P_real - P_mean
+    Normal_Distribution = np.random.normal(loc=P_mean, size=N-1)
+
+    matr[:,0] = P_wo_mean[:-1]
+    matr[:,1] = Normal_Distribution
+
+    [v_0, sigma_0] = np.dot(np.linalg.pinv(matr), deltaP)
+    print(f'v_0: {v_0}, sigma_0: {sigma_0}, P_mean: {P_mean}')
+###
+### Generate price series based on real data
+###
+    P_new = priceSeries(T=T, T_init=int(1E3), v_0=-v_0, sigma_0=sigma_0, mu=P_mean)
+
+    P_acorr = acf(P, length=int(250))
+    P_new_acorr = acf(P_new, length=int(250))
+    
+
+    # Bins for histogram
+    bins = np.linspace(start=0, stop=750, num=250)
+    price_density = np.histogram(all_real['DK1_DKK/MWh'], bins,  density=True)[0]
+    bins_x = np.zeros(len(bins)-1)
+    bins_x = (bins[1:] + bins[:-1])/2
+
+    plt.figure(6, figsize=(16,9))
+    plt.title("Real Price PDF")
+    plt.plot(bins_x, price_density)
+    plt.grid()
+    plt.savefig('FIG. 6 - PDF of real price series.png')
+    
+
+
+
+
+
+
+    fig, [ax1, ax2] = plt.subplots(2, 1, sharex=True, figsize=(16,9))
+    ax1.title.set_text('Autocorrelation of paper price series')
+    ax1.plot(P_acorr)
+    ax1.grid(True)
+
+    ax2.title.set_text('Autocorrelation of real-based price series')
+    ax2.plot(P_new_acorr)
+    ax2.grid(True)
+    plt.savefig('FIG. 7 - Autocorrelations of price series.png')
+
+
+
+
     plt.show()
 
     
